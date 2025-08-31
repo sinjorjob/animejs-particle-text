@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>anime.js Text Particle Animation</title>
+  <style>
+    :root {
+      --red: hsl(4, 70%, 50%);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      position: absolute;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Arial Black', sans-serif;
+    }
+
+    .text-container {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .letter {
+      position: relative;
+      width: 100px;
+      height: 120px;
+    }
+
+    .letter.dot {
+      width: 30px;
+    }
+
+    .particle {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, 
+        rgba(255, 255, 255, 0.7),
+        rgba(255, 120, 180, 0.8) 20%,
+        rgba(255, 80, 120, 0.7) 35%,
+        rgba(200, 40, 80, 0.6) 50%,
+        rgba(150, 20, 60, 0.4) 70%,
+        transparent
+      );
+      mix-blend-mode: screen;
+      will-change: transform;
+      opacity: 0.95;
+      box-shadow: 
+        0 0 15px rgba(255, 100, 150, 0.6),
+        0 0 30px rgba(255, 80, 120, 0.4),
+        0 0 45px rgba(255, 60, 100, 0.2),
+        inset -2px -2px 4px rgba(100, 0, 50, 0.3),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.5);
+      filter: contrast(1.1) brightness(1);
+    }
+    
+    .particle::before {
+      content: '';
+      position: absolute;
+      top: 15%;
+      left: 15%;
+      width: 25%;
+      height: 25%;
+      background: radial-gradient(circle, 
+        rgba(255, 255, 255, 0.6),
+        rgba(255, 255, 255, 0.3) 40%,
+        transparent 70%
+      );
+      border-radius: 50%;
+      filter: blur(0.3px);
+    }
+    
+    .particle::after {
+      content: '';
+      position: absolute;
+      bottom: 15%;
+      right: 15%;
+      width: 15%;
+      height: 15%;
+      background: radial-gradient(circle, 
+        rgba(255, 200, 255, 0.3),
+        rgba(200, 150, 255, 0.15) 50%,
+        transparent 70%
+      );
+      border-radius: 50%;
+      filter: blur(0.5px);
+    }
+  </style>
+</head>
+<body>
+  <div class="text-container" id="textContainer">
+  </div>
+
+  <!-- Three.js for 3D planets -->
+  <script src="https://unpkg.com/three@0.155.0/build/three.min.js"></script>
+
+  <!-- Background container for planets -->
+  <canvas id="planetCanvas" style="position: fixed; top: 0; left: 0; z-index: -1; pointer-events: none;"></canvas>
+
+  <script type="module">
+    import { animate, createTimeline, createTimer, stagger, utils } from 'https://esm.sh/animejs';
+
+    const textContainer = document.getElementById('textContainer');
+    const viewport = { w: window.innerWidth * .5, h: window.innerHeight * .5 };
+    const cursor = { x: 0, y: 0 };
+    let allParticles = [];
+    let originalPositions = [];
+
+    // 各文字のパーティクル座標（改善版）
+    const letterPatterns = {
+      'a': [
+        // 頂点
+        [50, 35],
+        // 左の斜線
+        [45, 45], [40, 55], [35, 65], [30, 75], [25, 85], [20, 90],
+        // 右の斜線
+        [55, 45], [60, 55], [65, 65], [70, 75], [75, 85], [80, 90],
+        // 横棒
+        [30, 70], [40, 70], [50, 70], [60, 70], [70, 70]
+      ],
+      'n': [
+        // 左の縦棒
+        [20, 37], [20, 45], [20, 55], [20, 65], [20, 75], [20, 85], [20, 90],
+        // 右の縦棒  
+        [70, 37], [70, 45], [70, 55], [70, 65], [70, 75], [70, 85], [70, 90],
+        // 上の曲線
+        [20, 37], [30, 35], [40, 34], [50, 34], [60, 35], [70, 37]
+      ],
+      'i': [
+        // 上の点
+        [45, 20], [50, 20], [55, 20],
+        // 縦棒
+        [50, 37], [50, 45], [50, 55], [50, 65], [50, 75], [50, 85], [50, 90]
+      ],
+      'm': [
+        // 左の縦棒
+        [15, 37], [15, 45], [15, 55], [15, 65], [15, 75], [15, 85], [15, 90],
+        // 中央の縦棒
+        [45, 37], [45, 45], [45, 55], [45, 65], [45, 75], [45, 85], [45, 90],
+        // 右の縦棒
+        [75, 37], [75, 45], [75, 55], [75, 65], [75, 75], [75, 85], [75, 90],
+        // 左の山（接続部分）
+        [15, 37], [22, 35], [30, 34], [38, 35], [45, 37],
+        // 右の山（接続部分）
+        [45, 37], [52, 35], [60, 34], [68, 35], [75, 37]
+      ],
+      'e': [
+        // 中央の横線（最重要）
+        [20, 60], [28, 60], [36, 60], [44, 60], [52, 60], [60, 60], [68, 60],
+        // 上部の開いたC形
+        [68, 45], [60, 40], [50, 37], [40, 35], [30, 37], [22, 40], [20, 45],
+        // 右上の接続線（eの特徴的な部分）
+        [68, 45], [70, 50], [70, 55], [68, 60],
+        // 左の縦線（上半分）
+        [20, 45], [20, 50], [20, 55], [20, 60],
+        // 左の縦線（下半分）
+        [20, 60], [20, 65], [20, 70], [20, 75], [20, 80], [20, 85],
+        // 下部の開いたC形（もっと下に）
+        [20, 85], [22, 88], [30, 90], [40, 91], [50, 91], [60, 90], [68, 88], [72, 85]
+      ],
+      '.': [
+        // 点（小さく）
+        [12, 85], [15, 88], [12, 91]
+      ],
+      'j': [
+        // 上の点
+        [45, 20], [50, 20], [55, 20],
+        // 縦棒
+        [50, 37], [50, 45], [50, 55], [50, 65], [50, 75], [50, 85], [50, 90],
+        // 下の曲線（フック）
+        [45, 95], [35, 97], [25, 95], [20, 90], [18, 80]
+      ],
+      's': [
+        // 上の曲線（右が開いている）- 余白を下と同じに
+        [65, 37], [55, 35], [45, 34], [35, 34], [25, 35], [20, 37], [18, 42],
+        // 左側の縦部分（上半分）
+        [18, 47], [18, 52],
+        // 中央の横線（右向き）
+        [20, 57], [30, 58], [40, 59], [50, 60], [60, 61], [65, 63],
+        // 右側の縦部分（下半分）
+        [70, 66], [70, 71], [70, 76],
+        // 下の曲線（左が開いている）- もっと下まで
+        [68, 81], [60, 86], [50, 89], [40, 90], [30, 90], [25, 89], [20, 87], [18, 84],
+        // 最下端を他の文字に合わせる
+        [22, 90], [30, 91], [40, 91], [50, 91], [60, 91], [65, 90]
+      ]
+    };
+
+    const text = 'anime.js';
+    let currentX = 0;
+
+    // 文字を作成
+    text.split('').forEach((char, charIndex) => {
+      const letterEl = document.createElement('div');
+      letterEl.classList.add('letter');
+      if (char === '.') {
+        letterEl.classList.add('dot');
+      }
+      
+      const pattern = letterPatterns[char];
+      if (!pattern) return;
+
+      pattern.forEach((pos, i) => {
+        const particle = document.createElement('div');
+        particle.classList.add('particle');
+        
+        // 虹色のグラデーション
+        const totalIndex = allParticles.length;
+        const hue = (totalIndex / 150) * 360; // 全体のパーティクル数で虹色を分配
+        const saturation = 100;
+        const lightness = 50 + Math.random() * 15;
+        
+        // 立体的で虹色がしっかり見えるグラデーション背景
+        particle.style.background = `
+          radial-gradient(circle at 35% 35%, 
+            hsla(${hue}, 100%, 90%, 0.7),
+            hsla(${hue}, ${saturation}%, 70%, 0.8) 15%,
+            hsla(${hue}, ${saturation}%, ${lightness}%, 0.85) 30%,
+            hsla(${hue}, ${saturation}%, ${lightness - 10}%, 0.7) 50%,
+            hsla(${hue}, ${saturation - 10}%, ${lightness - 20}%, 0.5) 70%,
+            hsla(${hue}, ${saturation - 20}%, ${lightness - 30}%, 0.3) 85%,
+            transparent
+          )
+        `;
+        
+        // 虹色がしっかり見える控えめな影とハイライト
+        particle.style.boxShadow = `
+          0 0 15px hsla(${hue}, 100%, ${lightness}%, 0.7),
+          0 0 25px hsla(${hue}, 100%, ${lightness - 5}%, 0.5),
+          0 0 35px hsla(${hue}, 90%, ${lightness - 10}%, 0.3),
+          inset -1px -1px 3px hsla(${hue + 180}, 60%, 25%, 0.4),
+          inset 2px 2px 4px hsla(${hue}, 70%, 85%, 0.6)
+        `;
+        
+        particle.style.filter = `contrast(1.1) brightness(1.05) saturate(1.3)`;
+        
+        letterEl.appendChild(particle);
+        allParticles.push(particle);
+        
+        // 元の位置を保存
+        originalPositions.push({ x: 0, y: 0, letterIndex: charIndex });
+        
+        // 初期位置設定
+        utils.set(particle, {
+          left: pos[0] + 'px',
+          top: pos[1] + 'px',
+          translateX: '-50%',
+          translateY: '-50%',
+          scale: 0.8 + Math.random() * 0.4,
+          opacity: 0.8 + Math.random() * 0.2,
+          x: 0,
+          y: 0,
+        });
+      });
+      
+      textContainer.appendChild(letterEl);
+    });
+
+    console.log(`Generated ${allParticles.length} particles for anime.js`);
+
+    // パルスアニメーション
+    const pulse = () => {
+      animate(allParticles, {
+        scale: [1, 1.5, 1],
+        opacity: [0.8, 1, 0.8],
+        duration: 1000,
+        delay: stagger(10),
+        ease: 'inOutQuad',
+      });
+    };
+
+    // メインループ - aから順番に整列する
+    const mainLoop = createTimer({
+      frameRate: 15,
+      onUpdate: () => {
+        animate(allParticles, {
+          x: cursor.x,
+          y: cursor.y,
+          delay: stagger(30, { from: 'first' }), // 最初（a）から順番に
+          duration: 600, // 固定の期間で一定速度
+          ease: 'outQuart', // よりスムーズで一定な動き
+          composition: 'blend',
+        });
+      }
+    });
+
+    // 自動移動アニメーション
+    const autoMove = createTimeline()
+    .add(cursor, {
+      x: [-viewport.w * .45, viewport.w * .45],
+      modifier: x => x + Math.sin(mainLoop.currentTime * .0007) * viewport.w * .5,
+      duration: 3000,
+      ease: 'inOutExpo',
+      alternate: true,
+      loop: true,
+      onBegin: pulse,
+      onLoop: pulse,
+    }, 0)
+    .add(cursor, {
+      y: [-viewport.h * .45, viewport.h * .45],
+      modifier: y => y + Math.cos(mainLoop.currentTime * .00012) * viewport.h * .5,
+      duration: 1000,
+      ease: 'inOutQuad',
+      alternate: true,
+      loop: true,
+    }, 0);
+
+    // マニュアル操作のタイムアウト - 静止させる
+    const manualMovementTimeout = createTimer({
+      duration: 2000,
+      onComplete: () => {
+        // カーソル位置で静止させる
+      },
+    });
+
+    // マウス追従
+    const followPointer = e => {
+      const event = e.type === 'touchmove' ? e.touches[0] : e;
+      cursor.x = event.pageX - window.innerWidth/2;
+      cursor.y = event.pageY - window.innerHeight/2;
+      autoMove.pause();
+      manualMovementTimeout.restart();
+    }
+
+    document.addEventListener('mousemove', followPointer);
+    document.addEventListener('touchmove', followPointer);
+
+    // 初期アニメーション
+    animate(allParticles, {
+      opacity: [0, 0.9],
+      scale: [0, 1],
+      translateX: [stagger([-100, 100]), 0],
+      translateY: [stagger([-100, 100]), 0],
+      duration: 2000,
+      delay: stagger(8, { from: 'first' }),
+      ease: 'outElastic(1, 0.6)',
+      complete: () => {
+        pulse();
+      }
+    });
+
+    // 継続的な輝きアニメーション
+    allParticles.forEach((particle, i) => {
+      animate(particle, {
+        opacity: [0.9, 1, 0.9],
+        scale: [1, 1.1, 1],
+        duration: 2500 + Math.random() * 2000,
+        delay: Math.random() * 2000,
+        loop: true,
+        ease: 'inOutSine',
+      });
+    });
+
+    // Three.js 惑星背景の初期化
+    const canvas = document.getElementById('planetCanvas');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ 
+      canvas: canvas, 
+      alpha: true, 
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+
+    // 地球のテクスチャとマテリアル（シェーダー）
+    const earthGeometry = new THREE.SphereGeometry(3, 256, 256);
+    
+    // リアル地球テクスチャローダー
+    const textureLoader = new THREE.TextureLoader();
+    
+    // 超高解像度NASA地球テクスチャ（8K品質） - フォールバック付き
+    const earthDayTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/earth-blue-marble.jpg',
+      undefined, undefined, 
+      () => textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73909/world.topo.bathy.200412.3x5400x2700.jpg')
+    );
+    const earthNightTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/earth-night.jpg',
+      undefined, undefined,
+      () => textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_3km.jpg')
+    );
+    const earthCloudsTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/earth-water.png',
+      undefined, undefined,
+      () => textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg')
+    );
+    const earthBumpTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/earth-topology.png',
+      undefined, undefined,
+      () => textureLoader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A2_grey_geo.tif')
+    );
+    
+    // テクスチャ設定
+    [earthDayTexture, earthNightTexture, earthCloudsTexture, earthBumpTexture].forEach(texture => {
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = 16; // 高品質フィルタリング
+      texture.generateMipmaps = true;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+    });
+    
+    // 新しいシンプルで確実な地球マテリアル
+    const earthMaterial = new THREE.MeshPhongMaterial({
+      map: earthDayTexture,
+      bumpMap: earthBumpTexture,
+      bumpScale: 0.1,
+      shininess: 0
+    });
+
+    // 海洋を青くするための追加レイヤー
+    const oceanMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uDayTexture: { value: earthDayTexture }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uDayTexture;
+        varying vec2 vUv;
+        
+        void main() {
+          vec3 texColor = texture2D(uDayTexture, vUv).rgb;
+          
+          // 海洋判定: 青が多く、緑と赤が少ない部分
+          float isOcean = step(0.5, texColor.b) * step(texColor.r, 0.3) * step(texColor.g, 0.4);
+          
+          // 海洋部分を深い青に置換
+          vec3 oceanColor = vec3(0.1, 0.3, 0.7);
+          vec3 finalColor = mix(texColor, oceanColor, isOcean);
+          
+          gl_FragColor = vec4(finalColor, 1.0);
+        }
+      `,
+      transparent: false
+    });
+
+    // 月のシェーダーマテリアル（高解像度）
+    const moonGeometry = new THREE.SphereGeometry(0.8, 128, 128);
+    
+    // 実際のNASA月面テクスチャ（高解像度） - フォールバック付き
+    const moonTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/moon.jpg',
+      undefined, undefined,
+      () => textureLoader.load('https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg')
+    );
+    const moonBumpTexture = textureLoader.load(
+      'https://unpkg.com/three-globe@2.24.3/example/img/moon.jpg',
+      undefined, undefined,
+      () => textureLoader.load('https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg')
+    );
+    
+    [moonTexture, moonBumpTexture].forEach(texture => {
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.anisotropy = 16;
+      texture.generateMipmaps = true;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+    });
+    
+    const moonMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0.0 },
+        sunDirection: { value: new THREE.Vector3(-1, 0.5, 1).normalize() },
+        uMoonTexture: { value: moonTexture },
+        uMoonBump: { value: moonBumpTexture }
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        varying vec2 vUv;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vPosition = position;
+          vUv = uv;
+          
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vViewPosition = -mvPosition.xyz;
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float time;
+        uniform vec3 sunDirection;
+        uniform sampler2D uMoonTexture;
+        uniform sampler2D uMoonBump;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        varying vec2 vUv;
+        varying vec3 vViewPosition;
+        
+        void main() {
+          vec3 normal = normalize(vNormal);
+          vec3 lightDir = normalize(sunDirection);
+          
+          // 実際のNASA月面テクスチャを使用
+          vec3 moonColor = texture2D(uMoonTexture, vUv).rgb;
+          
+          // バンプマッピングで月面の凹凸を表現
+          float bumpValue = texture2D(uMoonBump, vUv).r;
+          vec3 bumpNormal = normal + (bumpValue - 0.5) * 0.3;
+          bumpNormal = normalize(bumpNormal);
+          
+          // 太陽光の照明計算
+          float lightIntensity = dot(bumpNormal, lightDir);
+          float NdotL = max(0.0, lightIntensity);
+          
+          // 日向と日陰の境界（ターミネーター）
+          float terminator = smoothstep(-0.1, 0.1, lightIntensity);
+          
+          // 月の満ち欠けの表現
+          float phaseAngle = dot(normalize(vPosition), lightDir);
+          float phase = smoothstep(-0.4, 0.4, phaseAngle);
+          
+          // リアルな月のアルベド（反射率）
+          float albedo = 0.12; // 月の平均アルベド
+          
+          // 最終的な照明計算
+          float ambientLight = 0.02; // 宇宙の環境光
+          float diffuseLight = NdotL * albedo;
+          
+          // 月面の色合いを調整（実際の月の色に合わせる）
+          moonColor *= vec3(1.1, 1.0, 0.9); // 少し黄味がかった色調
+          
+          vec3 finalColor = moonColor * (ambientLight + diffuseLight * terminator * phase);
+          
+          // 地球からの反射光（地球照）- 実際に観測される現象
+          float earthShine = (1.0 - terminator) * 0.08;
+          finalColor += moonColor * earthShine * vec3(0.3, 0.4, 0.6);
+          
+          // ガンマ補正
+          finalColor = pow(finalColor, vec3(1.0/2.2));
+          
+          gl_FragColor = vec4(finalColor, 1.0);
+        }
+      `
+    });
+
+    // 地球と月のメッシュ作成（海洋材質を使用）
+    const earth = new THREE.Mesh(earthGeometry, oceanMaterial);
+    const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+    
+    // 地球の位置（右下）
+    earth.position.set(5, -3, -15);
+    
+    // 月の位置（左上）
+    moon.position.set(-6, 4, -12);
+    
+    // 星空背景
+    const starsGeometry = new THREE.BufferGeometry();
+    const starsMaterial = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 2,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    const starsVertices = [];
+    for (let i = 0; i < 2000; i++) {
+      const x = (Math.random() - 0.5) * 2000;
+      const y = (Math.random() - 0.5) * 2000;
+      const z = (Math.random() - 0.5) * 2000;
+      starsVertices.push(x, y, z);
+    }
+    
+    starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+    const stars = new THREE.Points(starsGeometry, starsMaterial);
+    
+    // 地球の大気光（グロー効果）
+    const atmosphereGeometry = new THREE.SphereGeometry(3.1, 64, 64);
+    const atmosphereMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        viewVector: { value: camera.position }
+      },
+      vertexShader: `
+        uniform vec3 viewVector;
+        varying float intensity;
+        void main() {
+          vec3 vNormal = normalize(normalMatrix * normal);
+          vec3 vNormel = normalize(normalMatrix * viewVector);
+          intensity = pow(0.6 - dot(vNormal, vNormel), 2.0);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying float intensity;
+        void main() {
+          vec3 glow = vec3(0.3, 0.6, 1.0) * intensity;
+          gl_FragColor = vec4(glow, intensity * 0.8);
+        }
+      `,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      transparent: true
+    });
+    
+    const earthAtmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+    earthAtmosphere.position.copy(earth.position);
+    
+    // より現実的なライティング
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.1);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    sunLight.position.set(-10, 5, 8);
+    sunLight.castShadow = true;
+    
+    // シーンに追加
+    scene.add(earth);
+    scene.add(earthAtmosphere);
+    scene.add(moon);
+    scene.add(stars);
+    scene.add(ambientLight);
+    scene.add(sunLight);
+    
+    // カメラ位置
+    camera.position.z = 10;
+    
+    // アニメーションループ
+    let planetTime = 0;
+    function animatePlanets() {
+      planetTime += 0.01;
+      
+      // 地球の自転
+      earth.rotation.y += 0.01;
+      
+      // 月の自転と公転
+      moon.rotation.y += 0.02;
+      moon.position.x = -6 + Math.cos(planetTime * 0.5) * 2;
+      moon.position.y = 4 + Math.sin(planetTime * 0.5) * 1;
+      
+      // シェーダーのuniform更新
+      moonMaterial.uniforms.time.value = planetTime;
+      
+      // 星空の微妙な回転
+      stars.rotation.y += 0.0005;
+      stars.rotation.x += 0.0002;
+      
+      renderer.render(scene, camera);
+      requestAnimationFrame(animatePlanets);
+    }
+    animatePlanets();
+    
+    // ウィンドウリサイズ対応
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
